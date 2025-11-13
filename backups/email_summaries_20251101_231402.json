@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "This is a security notification informing you that \"Email Summarizer\" has gained access to your Google account (farazout2sol@gmail.com) and warns that if you didn't authorize this, someone else might have.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "An application named 'Email Summarizer' has been granted access to your Google account.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "'Email Summarizer' has been granted access to your Google account (faf77348@gmail.com). You are advised to verify this access.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "",
+    "Priority": "Unknown"
+  },
+  {
+    "Summary": "This email is an automated message from Gmail and contains no specific content.",
+    "Priority": "Low"
+  }
+]

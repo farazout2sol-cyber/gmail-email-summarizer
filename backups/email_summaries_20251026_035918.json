@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "This email is a summary report detailing the failure of a high-priority email delivery to faraz@example.com due to a domain issue, and indicates the start of a second email summary.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email contains a security code (153488) for your Microsoft account (fa**s@outlook.com).",
+    "Priority": "High"
+  },
+  {
+    "Summary": "A summary report indicates a high-priority email delivery to faraz@example.com failed due to a domain issue. The report also includes an incomplete summary for a second email.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email provides a digest of other emails, reporting a high-priority delivery failure to faraz@example.com and an incomplete summary for a second email.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email reports on a previous summary that detailed a high-priority failed email delivery to faraz@example.com due to a domain issue.",
+    "Priority": "High"
+  }
+]

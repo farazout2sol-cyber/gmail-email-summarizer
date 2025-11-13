@@ -1,0 +1,322 @@
+import os
+import json
+import base64
+import pandas as pd
+import streamlit as st
+from datetime import datetime
+from dotenv import load_dotenv
+from langgraph.graph import StateGraph, START, END
+from langchain_google_genai import ChatGoogleGenerativeAI
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
+from typing import TypedDict, List
+from email.mime.text import MIMEText
+import gspread
+from st_aggrid import AgGrid, GridOptionsBuilder
+
+# ===============================
+# 🌙 Modern Dark Theme & Layout
+# ===============================
+st.set_page_config(
+    page_title="📧 AI Email Summarizer + Sender",
+    page_icon="🤖",
+    layout="wide",
+)
+st.markdown("""
+<style>
+/* ===============================
+   🎨 Auto Adaptive Theme (Light/Dark)
+   =============================== */
+
+/* Use Streamlit’s CSS variables that respond to theme */
+html, body, [class*="stAppViewContainer"] {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ======== HEADER ======== */
+[data-testid="stHeader"] {
+    background: var(--secondary-background-color);
+    border-bottom: 1px solid rgba(128,128,128,0.25);
+}
+
+/* ======== SIDEBAR ======== */
+section[data-testid="stSidebar"] {
+    background-color: var(--secondary-background-color);
+    border-right: 1px solid rgba(128,128,128,0.25);
+}
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] p {
+    color: var(--text-color);
+}
+
+/* ======== BUTTONS ======== */
+div.stButton > button {
+    background: linear-gradient(90deg, #5b63ff, #8b7fff);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0.7rem 1.4rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+div.stButton > button:hover {
+    background: linear-gradient(90deg, #8b7fff, #5b63ff);
+    box-shadow: 0 0 12px rgba(125,130,255,0.5);
+    transform: scale(1.03);
+}
+
+/* ======== CONTAINERS ======== */
+.stContainer {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.25);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* ======== TABLES ======== */
+.ag-theme-material {
+    --ag-background-color: var(--background-color);
+    --ag-header-background-color: var(--secondary-background-color);
+    --ag-odd-row-background-color: var(--background-color);
+    --ag-foreground-color: var(--text-color);
+    --ag-header-foreground-color: var(--text-color);
+    --ag-row-hover-color: rgba(125,130,255,0.1);
+}
+
+/* ======== TEXT INPUT ======== */
+input, textarea {
+    background-color: var(--secondary-background-color) !important;
+    color: var(--text-color) !important;
+    border-radius: 6px !important;
+    border: 1px solid rgba(128,128,128,0.25) !important;
+}
+
+/* ======== INFO BOXES ======== */
+.stAlert {
+    border-radius: 12px;
+    border-left: 4px solid #5b63ff;
+    background-color: rgba(91,99,255,0.1);
+}
+
+/* ======== FOOTER ======== */
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+# ===============================
+# 📦 Setup
+# ===============================
+load_dotenv()
+st.title("🤖 Gmail Summarizer + 📤 AI Email Sender")
+st.caption("Fetch → Summarize → Save → Send — powered by **Gemini + LangGraph + Gmail API**")
+
+if "summary_data" not in st.session_state:
+    st.session_state["summary_data"] = None
+if "latest_backup" not in st.session_state:
+    st.session_state["latest_backup"] = None
+
+# ===============================
+# 🧠 Gemini Model
+# ===============================
+model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+SYSTEM_PROMPT = """
+You are an intelligent assistant that summarizes email content clearly.
+1. Read the email carefully.
+2. Write a short 1–2 line summary.
+3. Assign a priority: High, Medium, or Low.
+Format:
+Summary: <summary>
+Priority: <priority>
+"""
+
+# ===============================
+# 🧩 LangGraph State
+# ===============================
+class EmailState(TypedDict):
+    emails: List[str]
+    optimized_emails: List[str]
+
+# ===============================
+# 📥 Fetch Emails
+# ===============================
+def fetch_emails_node(state: EmailState):
+    creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/gmail.readonly"])
+    service = build("gmail", "v1", credentials=creds)
+    results = service.users().messages().list(userId="me", maxResults=5).execute()
+    messages = results.get("messages", [])
+    emails = []
+
+    for msg in messages:
+        msg_detail = service.users().messages().get(userId="me", id=msg["id"]).execute()
+        snippet = msg_detail.get("snippet", "")
+        emails.append(snippet)
+    state["emails"] = emails
+    return state
+
+# ===============================
+# 🧠 Summarize Emails
+# ===============================
+def optimize_emails_node(state: EmailState):
+    summaries = []
+    for email in state["emails"]:
+        prompt = f"{SYSTEM_PROMPT}\n\nEmail:\n{email}"
+        response = model.invoke(prompt)
+        text = ""
+        if hasattr(response, "content"):
+            content_attr = response.content
+            if isinstance(content_attr, list) and len(content_attr) > 0:
+                text = getattr(content_attr[0], "text", str(content_attr[0]))
+            else:
+                text = str(content_attr)
+        else:
+            text = str(response)
+        summaries.append(text)
+    state["optimized_emails"] = summaries
+    return state
+
+# ===============================
+# 💾 Save to Sheets + JSON
+# ===============================
+def save_to_sheets_node(state: EmailState):
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("gsheet_cred.json", scope)
+    client = gspread.authorize(creds)
+    try:
+        sheet = client.open("Email Summaries").sheet1
+    except Exception:
+        sheet = None
+
+    data_to_save = []
+    for item in state["optimized_emails"]:
+        summary, priority = "", "Unknown"
+        for line in item.splitlines():
+            if line.lower().startswith("summary:"):
+                summary = line.replace("Summary:", "").strip()
+            elif line.lower().startswith("priority:"):
+                priority = line.replace("Priority:", "").strip()
+        data_to_save.append({"Summary": summary, "Priority": priority})
+        if sheet:
+            try:
+                sheet.append_row([summary, priority])
+            except Exception:
+                pass
+
+    os.makedirs("backups", exist_ok=True)
+    filename = f"backups/email_summaries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+    st.session_state["latest_backup"] = filename
+    return state
+
+# ===============================
+# ✉️ Email Sender
+# ===============================
+class EmailSender:
+    def __init__(self, token_path="token.json"):
+        self.SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+        self.creds = Credentials.from_authorized_user_file(token_path, self.SCOPES)
+        self.service = build("gmail", "v1", credentials=self.creds)
+
+    def send_summary_email(self, to_email: str, summaries: list[dict]):
+        body_lines = ["📬 Here are your summarized emails:\n"]
+        for i, s in enumerate(summaries, start=1):
+            s_lower = {k.lower(): v for k, v in s.items()}
+            summary_text = s_lower.get("summary", "N/A")
+            priority_text = s_lower.get("priority", "Unknown")
+            body_lines.append(f"📨 Email {i}")
+            body_lines.append(f"Summary: {summary_text}")
+            body_lines.append(f"Priority: {priority_text}\n")
+        body = "\n".join(body_lines)
+        message = MIMEText(body, "plain")
+        message["to"] = to_email
+        message["subject"] = "📧 Your Summarized Emails"
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        self.service.users().messages().send(userId="me", body={"raw": raw_message}).execute()
+        return {"status": "success", "recipient": to_email, "count": len(summaries)}
+
+# ===============================
+# 📂 Load Latest Backup
+# ===============================
+def load_latest_summary_json(folder="backups"):
+    if not os.path.exists(folder):
+        return None, None
+    json_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".json")]
+    if not json_files:
+        return None, None
+    latest_file = max(json_files, key=os.path.getmtime)
+    with open(latest_file, "r", encoding="utf-8") as f:
+        return json.load(f), latest_file
+
+# ===============================
+# 🚀 LangGraph
+# ===============================
+graph = StateGraph(EmailState)
+graph.add_node("FetchEmails", fetch_emails_node)
+graph.add_node("OptimizeEmails", optimize_emails_node)
+graph.add_node("SaveToSheets", save_to_sheets_node)
+graph.add_edge(START, "FetchEmails")
+graph.add_edge("FetchEmails", "OptimizeEmails")
+graph.add_edge("OptimizeEmails", "SaveToSheets")
+graph.add_edge("SaveToSheets", END)
+app_graph = graph.compile()
+
+# ===============================
+# 🧭 Main UI Layout
+# ===============================
+with st.sidebar:
+    st.markdown("### ⚙️ Control Panel")
+    st.info("Use the buttons below to fetch, summarize, and send your Gmail summaries.")
+    fetch_clicked = st.button("🚀 Fetch & Summarize My Gmail", use_container_width=True)
+
+if fetch_clicked:
+    with st.spinner("Processing your last 5 emails... 🧠"):
+        state = app_graph.invoke({})
+    st.session_state["summary_data"] = []
+
+    st.subheader("📥 Last 5 Gmail Messages (Fetched)")
+    email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
+    gb = GridOptionsBuilder.from_dataframe(email_table)
+    gb.configure_default_column(wrapText=True, autoHeight=True, resizable=True)
+    AgGrid(email_table, gridOptions=gb.build(), theme="material", height=250)
+
+    summaries = []
+    for text in state["optimized_emails"]:
+        summary, priority = "", "Unknown"
+        for line in text.splitlines():
+            if line.lower().startswith("summary:"):
+                summary = line.replace("Summary:", "").strip()
+            elif line.lower().startswith("priority:"):
+                priority = line.replace("Priority:", "").strip()
+        summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
+    st.session_state["summary_data"] = summaries
+
+    st.subheader("🧠 Summarized Results")
+    summary_df = pd.DataFrame(summaries)
+    gb2 = GridOptionsBuilder.from_dataframe(summary_df)
+    gb2.configure_default_column(wrapText=True, autoHeight=True)
+    AgGrid(summary_df, gridOptions=gb2.build(), theme="balham", height=250)
+
+    if st.session_state.get("latest_backup"):
+        st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
+
+if st.session_state.get("summary_data"):
+    st.markdown("---")
+    st.subheader("📤 Send Summarized Report")
+    user_email = st.text_input("Enter your email address:", placeholder="e.g. yourname@gmail.com")
+    if st.button("📨 Send to My Inbox", use_container_width=True):
+        if not user_email or "@" not in user_email:
+            st.warning("⚠️ Please enter a valid email address.")
+        else:
+            try:
+                sender = EmailSender()
+                result = sender.send_summary_email(user_email, st.session_state["summary_data"])
+                st.success(f"✅ Sent to {result['recipient']} ({result['count']} summaries)")
+            except Exception as e:
+                st.error(f"❌ Failed to send: {e}")
+
+st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit + AgGrid")
+

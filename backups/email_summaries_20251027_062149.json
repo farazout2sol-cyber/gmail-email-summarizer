@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "This email reports a high-priority failed delivery to faraz@example.com due to a domain issue, with the summary being incomplete.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email provides a digest of other email summaries, highlighting a high-priority failed email delivery to faraz@example.com due due to a domain issue, and an incomplete summary of a security-related email.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email reports on summarized emails, including a high-priority failed delivery to faraz@example.com due due to a domain issue, and starts to describe a security-related email.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email reports on summarized emails, highlighting a high-priority notification regarding a failed email delivery to faraz@example.com due to a domain issue.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "A report indicates that a high-priority email delivery to faraz@example.com failed due to a domain issue.",
+    "Priority": "High"
+  }
+]

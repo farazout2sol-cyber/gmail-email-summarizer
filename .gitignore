@@ -1,0 +1,21 @@
+# 🔒 Sensitive credentials (never upload these)
+token_*.json
+credentials.json
+gsheet_credentials.json
+.env
+cred.json
+Em.json
+
+# 🧠 Compiled Python cache files
+*.pyc
+__pycache__/
+
+# 💾 Backup folder
+backup/
+
+# ⚙️ VS Code settings
+.vscode/
+.vscode/settings.json
+
+# 🧱 Streamlit secrets (if used)
+secrets.toml

@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "This is a security notification informing you that 'Email Summarizer' has been granted access to your Google Account data, with a warning to take action if this access was not authorized.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "Google detected a new sign-in to your account on a Windows device and asks you to verify if it was you.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "The email promotes a service offering step-by-step help for any task.",
+    "Priority": "Low"
+  },
+  {
+    "Summary": "This email is a follow-up for a missed webinar on AI-Powered Threat Detection, encouraging the recipient to engage further with the topic.",
+    "Priority": "Low"
+  },
+  {
+    "Summary": "This email is a promotional offer to subscribe and receive 2 extra months for free.",
+    "Priority": "Low"
+  }
+]

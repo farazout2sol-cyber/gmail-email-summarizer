@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "A Google security alert has been issued regarding 'Email Summarizer'.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "",
+    "Priority": "Unknown"
+  },
+  {
+    "Summary": "",
+    "Priority": "Unknown"
+  },
+  {
+    "Summary": "This is a security notification informing you that \"Email Summarizer\" has accessed your Google Account data and advises you to investigate if you did not authorize this access.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "An email to faraz@example.com failed delivery due to a domain issue.",
+    "Priority": "High"
+  }
+]

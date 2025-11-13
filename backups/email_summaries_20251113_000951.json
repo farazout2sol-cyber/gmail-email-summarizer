@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "Your Google account `faheemrazaout2sol@gmail.com` has granted access to 'Email Summarizer'. Please verify this access, as it could be unauthorized.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "A security notification confirms that \"Email Summarizer\" has gained access to your Google account, with a warning if this access was unauthorized.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email is a security notification confirming that the \"Email Summarizer\" app has accessed your Google Account data, and warns you if this was unauthorized.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email is an empty prompt, inviting the recipient to start asking questions.",
+    "Priority": "Low"
+  },
+  {
+    "Summary": "This is a promotional offer inviting recipients to subscribe and receive two extra months free.",
+    "Priority": "Low"
+  }
+]

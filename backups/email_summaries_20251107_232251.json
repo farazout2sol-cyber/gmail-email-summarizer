@@ -1,0 +1,22 @@
+[
+  {
+    "Summary": "This is a Google security notification informing you that \"Email Summarizer\" has accessed your Google Account data and prompts you to verify if you authorized it.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "This email provides the requested single-use code (263974) for your Microsoft account, advising it only be used on official platforms.",
+    "Priority": "Medium"
+  },
+  {
+    "Summary": "2-Step Verification has been successfully enabled for your Google Account farazout2sol@gmail.com, enhancing its security.",
+    "Priority": "Medium"
+  },
+  {
+    "Summary": "A new phone number has been added for 2-Step Verification to your account farazout2sol@gmail.com, meaning sign-in codes will now go there. If you didn't make this change, your account may be compromised.",
+    "Priority": "High"
+  },
+  {
+    "Summary": "A new passkey has been added to your account farazout2sol@gmail.com. If this was unauthorized, you should secure your account immediately as it may be compromised.",
+    "Priority": "High"
+  }
+]
