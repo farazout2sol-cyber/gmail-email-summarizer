@@ -16,7 +16,6 @@ from typing import TypedDict, List
 import gspread
 from st_aggrid import AgGrid, GridOptionsBuilder
 
-
 # ===============================
 # 🌙 Modern Dark Theme
 # ===============================
@@ -108,50 +107,6 @@ def gmail_login():
     with open(token_path, "w") as token:
         token.write(creds.to_json())
     return email, token_path
-
-
-
-
-# def gmail_login():
-#     SCOPES = [
-#         "https://www.googleapis.com/auth/gmail.readonly",
-#         "https://www.googleapis.com/auth/gmail.send",
-#         "https://www.googleapis.com/auth/userinfo.email",
-#         "https://www.googleapis.com/auth/userinfo.profile",
-#         "openid"
-#     ]
-
-#     # Detect environment
-#     if st.secrets.get("is_cloud", False):
-#         redirect_uri = "https://<your-app-name>.streamlit.app/"  # Replace with your Streamlit app URL
-#     else:
-#         redirect_uri = "http://localhost:8501/"
-
-#     # Load web credentials from your JSON
-#     with open("cred.json") as f:
-#         creds_json = json.load(f)["web"]
-
-#     flow = InstalledAppFlow.from_client_config(
-#         {"web": creds_json},
-#         SCOPES,
-#         redirect_uri=redirect_uri
-#     )
-
-#     # Get credentials object (no need to import Credentials separately)
-#     creds = flow.run_local_server(port=8501)
-
-#     # Get user info
-#     user_info_service = build("oauth2", "v2", credentials=creds)
-#     user_info = user_info_service.userinfo().get().execute()
-#     email = user_info.get("email")
-
-#     # Save token
-#     token_path = f"token_{email}.json"
-#     with open(token_path, "w") as f:
-#         f.write(creds.to_json())
-
-#     return email, token_path
-
 
 
 # ===============================
@@ -346,3 +301,4 @@ if st.session_state.get("summary_data"):
             st.error(f"❌ Failed to send: {e}")
 
 st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit + AgGrid")
+
