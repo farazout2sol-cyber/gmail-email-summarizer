@@ -91,6 +91,12 @@ Priority: <priority>
 # 🔐 Gmail Login
 # ===============================
 def gmail_login():
+    """
+    Performs OAuth2 login for Gmail.
+    Returns:
+        email (str): Logged-in user's email
+        token_path (str): Path to the temporary token JSON file
+    """
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
@@ -98,22 +104,30 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-    # Use secret JSON
-    em_json = st.secrets["em"]
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
-        json.dump(em_json, f)
-        f_path = f.name
 
-    flow = InstalledAppFlow.from_client_secrets_file(f_path, SCOPES)
+    # Use either Streamlit secrets or local Em.json
+    if "em_json" in st.secrets:
+        client_secrets = st.secrets["em_json"]  # Should be a dict with client_id, client_secret
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+            import json
+            json.dump(client_secrets, f)
+            client_secrets_path = f.name
+    else:
+        client_secrets_path = "Em.json"  # fallback to local file
+
+    # Run OAuth2 flow
+    flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
     creds = flow.run_local_server(port=0)
+
+    # Save token to temporary file
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
+        token_file.write(creds.to_json())  # creds.to_json() is already a JSON string
+        token_path = token_file.name
+
+    # Get user email
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
-
-    # Save token locally (optional)
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
-        token_file.write(creds.to_json())
-        token_path = token_file.name
 
     return email, token_path
 
