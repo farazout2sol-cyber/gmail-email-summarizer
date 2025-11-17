@@ -8,7 +8,6 @@ from typing import TypedDict, List
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
-from st_aggrid import AgGrid, GridOptionsBuilder
 
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -40,7 +39,7 @@ footer {visibility: hidden;}
 # 📦 Load Environment & Secrets
 # ===============================
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Optional for other Google APIs
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Optional
 
 # ===============================
 # 🧠 Gemini Model Setup
@@ -57,7 +56,7 @@ Priority: <priority>
 """
 
 # ===============================
-# 🔐 Gmail Login (using Streamlit Secrets)
+# 🔐 Gmail Login
 # ===============================
 def gmail_login():
     SCOPES = [
@@ -67,11 +66,7 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-
-    import tempfile
-    import json
-
-    # Use secret.toml [em] or fallback to local Em.json
+    # Use secret.toml [em] or fallback
     if "em" in st.secrets:
         client_secrets = st.secrets["em"]
         with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
@@ -83,7 +78,7 @@ def gmail_login():
     flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
     creds = flow.run_local_server(port=0)
 
-    # Save token to a temp file
+    # Save token
     with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
         token_file.write(creds.to_json())
         token_path = token_file.name
@@ -92,7 +87,6 @@ def gmail_login():
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
-
     return email, token_path
 
 # ===============================
@@ -149,7 +143,6 @@ def optimize_emails_node(state: EmailState):
     for email in state["emails"]:
         prompt = f"{SYSTEM_PROMPT}\n\nEmail:\n{email}"
         response = model.invoke(prompt)
-
         # Convert AttrDict -> string
         text = ""
         if hasattr(response, "content"):
@@ -160,9 +153,7 @@ def optimize_emails_node(state: EmailState):
                 text = str(content_attr)
         else:
             text = str(response)
-
         summaries.append(text)
-
     state["optimized_emails"] = summaries
     return state
 
@@ -172,8 +163,6 @@ def optimize_emails_node(state: EmailState):
 def save_to_sheets_node(state: EmailState):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-    # Load credentials from Streamlit secrets
-    import tempfile
     if "gsheet" in st.secrets:
         creds_dict = st.secrets["gsheet"]
         with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
@@ -257,41 +246,41 @@ app_graph = graph.compile()
 # ===============================
 # 🧭 Main UI
 # ===============================
-with st.sidebar:
-    st.markdown("### ⚙️ Control Panel")
-    st.info("Use the buttons below to fetch, summarize, and send your Gmail summaries.")
-    fetch_clicked = st.button("🚀 Fetch & Summarize My Gmail", use_container_width=True)
+st.title("🤖 Gmail Summarizer + Sender")
+st.caption("Fetch → Summarize → Save → Send — powered by Gemini + LangGraph + Gmail API")
 
-if fetch_clicked:
-    with st.spinner("Processing your last 5 emails... 🧠"):
-        state = app_graph.invoke({})
+if "summary_data" not in st.session_state:
     st.session_state["summary_data"] = []
 
-    st.subheader("📥 Last 5 Gmail Messages (Fetched)")
-    email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
-    gb = GridOptionsBuilder.from_dataframe(email_table)
-    gb.configure_default_column(wrapText=True, autoHeight=True, resizable=True)
-    AgGrid(email_table, gridOptions=gb.build(), theme="material", height=250)
+if st.sidebar.button("🚀 Fetch & Summarize My Gmail", use_container_width=True):
+    with st.spinner("Processing your last 5 emails... 🧠"):
+        state = app_graph.invoke({})
+        st.session_state["summary_data"] = []
 
-    summaries = []
-    for text in state["optimized_emails"]:
-        summary, priority = "", "Unknown"
-        for line in text.splitlines():
-            if line.lower().startswith("summary:"):
-                summary = line.replace("Summary:", "").strip()
-            elif line.lower().startswith("priority:"):
-                priority = line.replace("Priority:", "").strip()
-        summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
-    st.session_state["summary_data"] = summaries
+        # Display fetched emails
+        st.subheader("📥 Last 5 Gmail Messages (Fetched)")
+        email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
+        st.table(email_table)
 
-    st.subheader("🧠 Summarized Results")
-    summary_df = pd.DataFrame(summaries)
-    gb2 = GridOptionsBuilder.from_dataframe(summary_df)
-    gb2.configure_default_column(wrapText=True, autoHeight=True)
-    AgGrid(summary_df, gridOptions=gb2.build(), theme="balham", height=250)
+        # Process summaries
+        summaries = []
+        for text in state["optimized_emails"]:
+            summary, priority = "", "Unknown"
+            for line in text.splitlines():
+                if line.lower().startswith("summary:"):
+                    summary = line.replace("Summary:", "").strip()
+                elif line.lower().startswith("priority:"):
+                    priority = line.replace("Priority:", "").strip()
+            summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
+        st.session_state["summary_data"] = summaries
 
-    if st.session_state.get("latest_backup"):
-        st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
+        # Show summaries
+        st.subheader("🧠 Summarized Results")
+        summary_df = pd.DataFrame(summaries)
+        st.table(summary_df)
+
+        if st.session_state.get("latest_backup"):
+            st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
 
 # Send Summaries
 if st.session_state.get("summary_data"):
@@ -306,4 +295,4 @@ if st.session_state.get("summary_data"):
         except Exception as e:
             st.error(f"❌ Failed to send: {e}")
 
-st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit + AgGrid")
+st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit")
