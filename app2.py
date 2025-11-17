@@ -304,4 +304,4 @@ st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API +
 
 
 
-is code ka hisab sa adjustment batao
+
