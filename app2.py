@@ -14,6 +14,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from email.mime.text import MIMEText
 from typing import TypedDict, List
 import gspread
+import tempfile
 
 # ===============================
 # 🌙 Modern Dark Theme
@@ -97,14 +98,23 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-    flow = InstalledAppFlow.from_client_secrets_file("Em.json", SCOPES)
+    # Use secret JSON
+    em_json = st.secrets["em"]
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+        json.dump(em_json, f)
+        f_path = f.name
+
+    flow = InstalledAppFlow.from_client_secrets_file(f_path, SCOPES)
     creds = flow.run_local_server(port=0)
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
-    token_path = f"token_{email}.json"
-    with open(token_path, "w") as token:
-        token.write(creds.to_json())
+
+    # Save token locally (optional)
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
+        token_file.write(creds.to_json())
+        token_path = token_file.name
+
     return email, token_path
 
 # ===============================
@@ -181,7 +191,12 @@ def optimize_emails_node(state: EmailState):
 # ===============================
 def save_to_sheets_node(state: EmailState):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("gsheet_credentials.json", scope)
+    gsheet_json = st.secrets["gsheet"]
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+        json.dump(gsheet_json, f)
+        creds_path = f.name
+
+    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
     client = gspread.authorize(creds)
 
     try:
