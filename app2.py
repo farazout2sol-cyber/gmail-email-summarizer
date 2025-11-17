@@ -90,6 +90,12 @@ Priority: <priority>
 # 🔐 Gmail Login
 # ===============================
 def gmail_login():
+    """
+    Logs in to Gmail using OAuth2 for Streamlit (headless-friendly).
+    Uses Streamlit secrets [em] if available, or falls back to local Em.json.
+    Caches the token in st.session_state for reuse.
+    """
+    ]
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
@@ -97,15 +103,38 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-    flow = InstalledAppFlow.from_client_secrets_file("Em.json", SCOPES)
-    creds = flow.run_local_server(port=0)
+
+    # Check if token already exists in session_state
+    if "gmail_token" in st.session_state:
+        creds = Credentials.from_authorized_user_info(st.session_state["gmail_token"], SCOPES)
+        # Verify token by fetching user info
+        user_info_service = build("oauth2", "v2", credentials=creds)
+        user_info = user_info_service.userinfo().get().execute()
+        email = user_info.get("email")
+        return email, creds
+
+    # Load client secrets from Streamlit secrets or local file
+    if "em" in st.secrets:
+        client_secrets = st.secrets["em"]
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+            json.dump(client_secrets, f)
+            client_secrets_path = f.name
+    else:
+        client_secrets_path = "Em.json"
+
+    # Use console-based login for headless / Streamlit servers
+    flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
+    creds = flow.run_console()  # <-- prints URL for user to visit
+
+    # Save creds to session_state for reuse
+    st.session_state["gmail_token"] = json.loads(creds.to_json())
+
+    # Get user email
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
-    token_path = f"token_{email}.json"
-    with open(token_path, "w") as token:
-        token.write(creds.to_json())
-    return email, token_path
+
+    return email, creds
 
 # ===============================
 # 🔒 Login Page
