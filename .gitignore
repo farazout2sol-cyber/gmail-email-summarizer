@@ -4,7 +4,7 @@ credentials.json
 gsheet_credentials.json
 .env
 cred.json
-Em.json
+
 
 # 🧠 Compiled Python cache files
 *.pyc
