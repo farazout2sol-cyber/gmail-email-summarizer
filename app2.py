@@ -14,6 +14,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 from email.mime.text import MIMEText
 from typing import TypedDict, List
 import gspread
+from st_aggrid import AgGrid, GridOptionsBuilder
+import tempfile
+
 
 # ===============================
 # 🌙 Modern Dark Theme
@@ -89,6 +92,7 @@ Priority: <priority>
 # ===============================
 # 🔐 Gmail Login
 # ===============================
+
 def gmail_login():
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
@@ -97,15 +101,25 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-    flow = InstalledAppFlow.from_client_secrets_file("Em.json", SCOPES)
+    # Use secret JSON
+    em_json = st.secrets["em"]
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+        json.dump(em_json, f)
+        f_path = f.name
+
+    flow = InstalledAppFlow.from_client_secrets_file(f_path, SCOPES)
     creds = flow.run_local_server(port=0)
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
-    token_path = f"token_{email}.json"
-    with open(token_path, "w") as token:
-        token.write(creds.to_json())
+
+    # Save token locally (optional)
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
+        token_file.write(creds.to_json())
+        token_path = token_file.name
+
     return email, token_path
+
 
 # ===============================
 # 🔒 Login Page
@@ -124,6 +138,7 @@ if "user_email" not in st.session_state:
             st.error(f"Login failed: {e}")
     st.stop()
 
+# Show logged-in user in sidebar
 st.sidebar.markdown(f"👤 **Logged in as:** {st.session_state['user_email']}")
 
 # ===============================
@@ -143,12 +158,10 @@ def fetch_emails_node(state: EmailState):
     results = service.users().messages().list(userId="me", maxResults=5).execute()
     messages = results.get("messages", [])
     emails = []
-
     for msg in messages:
         msg_detail = service.users().messages().get(userId="me", id=msg["id"]).execute()
         snippet = msg_detail.get("snippet", "")
         emails.append(snippet)
-
     state["emails"] = emails
     return state
 
@@ -161,7 +174,6 @@ def optimize_emails_node(state: EmailState):
         prompt = f"{SYSTEM_PROMPT}\n\nEmail:\n{email}"
         response = model.invoke(prompt)
         text = ""
-
         if hasattr(response, "content"):
             content_attr = response.content
             if isinstance(content_attr, list) and len(content_attr) > 0:
@@ -170,9 +182,7 @@ def optimize_emails_node(state: EmailState):
                 text = str(content_attr)
         else:
             text = str(response)
-
         summaries.append(text)
-
     state["optimized_emails"] = summaries
     return state
 
@@ -181,9 +191,13 @@ def optimize_emails_node(state: EmailState):
 # ===============================
 def save_to_sheets_node(state: EmailState):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("gsheet_credentials.json", scope)
-    client = gspread.authorize(creds)
+    gsheet_json = st.secrets["gsheet"]
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
+        json.dump(gsheet_json, f)
+        creds_path = f.name
 
+    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+    client = gspread.authorize(creds)
     try:
         sheet = client.open("Email Summaries").sheet1
     except Exception:
@@ -197,21 +211,17 @@ def save_to_sheets_node(state: EmailState):
                 summary = line.replace("Summary:", "").strip()
             elif line.lower().startswith("priority:"):
                 priority = line.replace("Priority:", "").strip()
-
         data_to_save.append({"Summary": summary, "Priority": priority})
-
         if sheet:
             try:
                 sheet.append_row([summary, priority])
-            except:
+            except Exception:
                 pass
 
     os.makedirs("backups", exist_ok=True)
     filename = f"backups/email_summaries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-
     st.session_state["latest_backup"] = filename
     return state
 
@@ -222,29 +232,24 @@ class EmailSender:
     def __init__(self, token_path=None):
         if token_path is None:
             token_path = st.session_state.get("token_path")
-
         self.SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
         self.creds = Credentials.from_authorized_user_file(token_path, self.SCOPES)
         self.service = build("gmail", "v1", credentials=self.creds)
 
     def send_summary_email(self, to_email: str, summaries: list[dict]):
         body_lines = ["📬 Here are your summarized emails:\n"]
-
         for i, s in enumerate(summaries, start=1):
-            summary_text = s.get("Summary", "N/A")
-            priority_text = s.get("Priority", "Unknown")
-
+            s_lower = {k.lower(): v for k, v in s.items()}
+            summary_text = s_lower.get("summary", "N/A")
+            priority_text = s_lower.get("priority", "Unknown")
             body_lines.append(f"📨 Email {i}")
             body_lines.append(f"Summary: {summary_text}")
             body_lines.append(f"Priority: {priority_text}\n")
-
         body = "\n".join(body_lines)
-
         message = MIMEText(body, "plain")
         message["to"] = to_email
         message["subject"] = "📧 Your Summarized Emails"
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-
         self.service.users().messages().send(userId="me", body={"raw": raw_message}).execute()
         return {"status": "success", "recipient": to_email, "count": len(summaries)}
 
@@ -266,21 +271,20 @@ app_graph = graph.compile()
 # ===============================
 with st.sidebar:
     st.markdown("### ⚙️ Control Panel")
+    st.info("Use the buttons below to fetch, summarize, and send your Gmail summaries.")
     fetch_clicked = st.button("🚀 Fetch & Summarize My Gmail", use_container_width=True)
 
-# RUN PIPELINE
 if fetch_clicked:
     with st.spinner("Processing your last 5 emails... 🧠"):
         state = app_graph.invoke({})
-
     st.session_state["summary_data"] = []
 
-    # Show original emails
     st.subheader("📥 Last 5 Gmail Messages (Fetched)")
-    email_table = pd.DataFrame({"Email Snippet": state["emails"]})
-    st.table(email_table)
+    email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
+    gb = GridOptionsBuilder.from_dataframe(email_table)
+    gb.configure_default_column(wrapText=True, autoHeight=True, resizable=True)
+    AgGrid(email_table, gridOptions=gb.build(), theme="material", height=250)
 
-    # Extract summaries
     summaries = []
     for text in state["optimized_emails"]:
         summary, priority = "", "Unknown"
@@ -289,25 +293,22 @@ if fetch_clicked:
                 summary = line.replace("Summary:", "").strip()
             elif line.lower().startswith("priority:"):
                 priority = line.replace("Priority:", "").strip()
-
-        summaries.append({"Summary": summary, "Priority": priority})
-
+        summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
     st.session_state["summary_data"] = summaries
 
     st.subheader("🧠 Summarized Results")
     summary_df = pd.DataFrame(summaries)
-    st.table(summary_df)
+    gb2 = GridOptionsBuilder.from_dataframe(summary_df)
+    gb2.configure_default_column(wrapText=True, autoHeight=True)
+    AgGrid(summary_df, gridOptions=gb2.build(), theme="balham", height=250)
 
     if st.session_state.get("latest_backup"):
         st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
 
-# SEND EMAIL
 if st.session_state.get("summary_data"):
     st.markdown("---")
     st.subheader("📤 Send Summarized Report")
-
-    user_email = st.text_input("Enter email:", value=st.session_state["user_email"])
-
+    user_email = st.text_input("Enter your email address:", placeholder="e.g. yourname@gmail.com", value=st.session_state["user_email"])
     if st.button("📨 Send to My Inbox", use_container_width=True):
         try:
             sender = EmailSender()
@@ -316,4 +317,5 @@ if st.session_state.get("summary_data"):
         except Exception as e:
             st.error(f"❌ Failed to send: {e}")
 
-st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit")
+st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit + AgGrid")
+
