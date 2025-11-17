@@ -106,8 +106,8 @@ def gmail_login():
     ]
 
     # Use either Streamlit secrets or local Em.json
-    if "em_json" in st.secrets:
-        client_secrets = st.secrets["em_json"]  # Should be a dict with client_id, client_secret
+    if "em" in st.secrets:
+        client_secrets = st.secrets["em"]  # Should be a dict with client_id, client_secret
         with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
             import json
             json.dump(client_secrets, f)
