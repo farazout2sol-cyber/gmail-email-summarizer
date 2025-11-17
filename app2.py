@@ -1,48 +1,80 @@
 import os
 import json
 import base64
-import tempfile
-from datetime import datetime
-from typing import TypedDict, List
-
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 from dotenv import load_dotenv
-
+from langgraph.graph import StateGraph, START, END
+from langchain_google_genai import ChatGoogleGenerativeAI
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from oauth2client.service_account import ServiceAccountCredentials
-import gspread
 from email.mime.text import MIMEText
-
-from langgraph.graph import StateGraph, START, END
-from langchain_google_genai import ChatGoogleGenerativeAI
+from typing import TypedDict, List
+import gspread
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 # ===============================
 # 🌙 Modern Dark Theme
 # ===============================
 st.set_page_config(page_title="📧 AI Email Summarizer + Sender", page_icon="🤖", layout="wide")
+
 st.markdown("""
 <style>
-html, body, [class*="stAppViewContainer"] { background-color: #1c1f28; color: #f8f9fb; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;}
-[data-testid="stHeader"] { background: #252934; border-bottom: 1px solid rgba(128,128,128,0.25);}
-section[data-testid="stSidebar"] { background-color: #252934; border-right: 1px solid rgba(128,128,128,0.25);}
-div.stButton > button { background: linear-gradient(90deg, #5b63ff, #8b7fff); color: white; border: none; border-radius: 10px; padding: 0.7rem 1.4rem; font-weight: 600; transition: all 0.3s ease;}
-div.stButton > button:hover { background: linear-gradient(90deg, #8b7fff, #5b63ff); box-shadow: 0 0 12px rgba(125,130,255,0.5); transform: scale(1.03);}
-.stContainer { background: #252934; border: 1px solid rgba(128,128,128,0.25); border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15);}
+html, body, [class*="stAppViewContainer"] {
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+[data-testid="stHeader"] {
+    background: var(--secondary-background-color);
+    border-bottom: 1px solid rgba(128,128,128,0.25);
+}
+section[data-testid="stSidebar"] {
+    background-color: var(--secondary-background-color);
+    border-right: 1px solid rgba(128,128,128,0.25);
+}
+div.stButton > button {
+    background: linear-gradient(90deg, #5b63ff, #8b7fff);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0.7rem 1.4rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+div.stButton > button:hover {
+    background: linear-gradient(90deg, #8b7fff, #5b63ff);
+    box-shadow: 0 0 12px rgba(125,130,255,0.5);
+    transform: scale(1.03);
+}
+.stContainer {
+    background: var(--secondary-background-color);
+    border: 1px solid rgba(128,128,128,0.25);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
 footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 # ===============================
-# 📦 Load Environment & Secrets
+# 📦 Setup
 # ===============================
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # Optional
+st.title("🤖 Gmail Summarizer + 📤 AI Email Sender")
+st.caption("Fetch → Summarize → Save → Send — powered by **Gemini + LangGraph + Gmail API**")
+
+if "summary_data" not in st.session_state:
+    st.session_state["summary_data"] = None
+if "latest_backup" not in st.session_state:
+    st.session_state["latest_backup"] = None
 
 # ===============================
-# 🧠 Gemini Model Setup
+# 🧠 Gemini Model
 # ===============================
 model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 SYSTEM_PROMPT = """
@@ -66,28 +98,16 @@ def gmail_login():
         "https://www.googleapis.com/auth/userinfo.profile",
         "openid"
     ]
-    # Use secret.toml [em] or fallback
-    if "em" in st.secrets:
-        client_secrets = st.secrets["em"]
-        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
-            json.dump(client_secrets, f)
-            client_secrets_path = f.name
-    else:
-        client_secrets_path = "Em.json"
-
-    flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file("Em.json", SCOPES)
     creds = flow.run_local_server(port=0)
-
-    # Save token
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as token_file:
-        token_file.write(creds.to_json())
-        token_path = token_file.name
-
-    # Fetch user email
     user_info_service = build("oauth2", "v2", credentials=creds)
     user_info = user_info_service.userinfo().get().execute()
     email = user_info.get("email")
+    token_path = f"token_{email}.json"
+    with open(token_path, "w") as token:
+        token.write(creds.to_json())
     return email, token_path
+
 
 # ===============================
 # 🔒 Login Page
@@ -101,11 +121,12 @@ if "user_email" not in st.session_state:
             st.session_state["user_email"] = email
             st.session_state["token_path"] = token_path
             st.success(f"✅ Logged in as {email}")
-            st.experimental_rerun()
+            st.rerun()
         except Exception as e:
             st.error(f"Login failed: {e}")
     st.stop()
 
+# Show logged-in user in sidebar
 st.sidebar.markdown(f"👤 **Logged in as:** {st.session_state['user_email']}")
 
 # ===============================
@@ -116,34 +137,30 @@ class EmailState(TypedDict):
     optimized_emails: List[str]
 
 # ===============================
-# 📥 Fetch Emails Node
+# 📥 Fetch Emails
 # ===============================
 def fetch_emails_node(state: EmailState):
     token_path = st.session_state.get("token_path")
     creds = Credentials.from_authorized_user_file(token_path, ["https://www.googleapis.com/auth/gmail.readonly"])
     service = build("gmail", "v1", credentials=creds)
-
     results = service.users().messages().list(userId="me", maxResults=5).execute()
     messages = results.get("messages", [])
     emails = []
-
     for msg in messages:
         msg_detail = service.users().messages().get(userId="me", id=msg["id"]).execute()
         snippet = msg_detail.get("snippet", "")
         emails.append(snippet)
-
     state["emails"] = emails
     return state
 
 # ===============================
-# 🧠 Summarize Emails Node
+# 🧠 Summarize Emails
 # ===============================
 def optimize_emails_node(state: EmailState):
     summaries = []
     for email in state["emails"]:
         prompt = f"{SYSTEM_PROMPT}\n\nEmail:\n{email}"
         response = model.invoke(prompt)
-        # Convert AttrDict -> string
         text = ""
         if hasattr(response, "content"):
             content_attr = response.content
@@ -158,22 +175,12 @@ def optimize_emails_node(state: EmailState):
     return state
 
 # ===============================
-# 💾 Save to Google Sheets + JSON Backup
+# 💾 Save to Sheets + JSON
 # ===============================
 def save_to_sheets_node(state: EmailState):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-    if "gsheet" in st.secrets:
-        creds_dict = st.secrets["gsheet"]
-        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as f:
-            json.dump(creds_dict, f)
-            gsheet_path = f.name
-        creds = ServiceAccountCredentials.from_json_keyfile_name(gsheet_path, scope)
-    else:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("gsheet_credentials.json", scope)
-
+    creds = ServiceAccountCredentials.from_json_keyfile_name("gsheet_credentials.json", scope)
     client = gspread.authorize(creds)
-
     try:
         sheet = client.open("Email Summaries").sheet1
     except Exception:
@@ -198,7 +205,6 @@ def save_to_sheets_node(state: EmailState):
     filename = f"backups/email_summaries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-
     st.session_state["latest_backup"] = filename
     return state
 
@@ -231,7 +237,7 @@ class EmailSender:
         return {"status": "success", "recipient": to_email, "count": len(summaries)}
 
 # ===============================
-# 🚀 LangGraph Workflow
+# 🚀 LangGraph
 # ===============================
 graph = StateGraph(EmailState)
 graph.add_node("FetchEmails", fetch_emails_node)
@@ -244,45 +250,44 @@ graph.add_edge("SaveToSheets", END)
 app_graph = graph.compile()
 
 # ===============================
-# 🧭 Main UI
+# 🧭 Main UI Layout
 # ===============================
-st.title("🤖 Gmail Summarizer + Sender")
-st.caption("Fetch → Summarize → Save → Send — powered by Gemini + LangGraph + Gmail API")
+with st.sidebar:
+    st.markdown("### ⚙️ Control Panel")
+    st.info("Use the buttons below to fetch, summarize, and send your Gmail summaries.")
+    fetch_clicked = st.button("🚀 Fetch & Summarize My Gmail", use_container_width=True)
 
-if "summary_data" not in st.session_state:
-    st.session_state["summary_data"] = []
-
-if st.sidebar.button("🚀 Fetch & Summarize My Gmail", use_container_width=True):
+if fetch_clicked:
     with st.spinner("Processing your last 5 emails... 🧠"):
         state = app_graph.invoke({})
-        st.session_state["summary_data"] = []
+    st.session_state["summary_data"] = []
 
-        # Display fetched emails
-        st.subheader("📥 Last 5 Gmail Messages (Fetched)")
-        email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
-        st.table(email_table)
+    st.subheader("📥 Last 5 Gmail Messages (Fetched)")
+    email_table = pd.DataFrame({"No.": range(1, len(state["emails"]) + 1), "Email Snippet": state["emails"]})
+    gb = GridOptionsBuilder.from_dataframe(email_table)
+    gb.configure_default_column(wrapText=True, autoHeight=True, resizable=True)
+    AgGrid(email_table, gridOptions=gb.build(), theme="material", height=250)
 
-        # Process summaries
-        summaries = []
-        for text in state["optimized_emails"]:
-            summary, priority = "", "Unknown"
-            for line in text.splitlines():
-                if line.lower().startswith("summary:"):
-                    summary = line.replace("Summary:", "").strip()
-                elif line.lower().startswith("priority:"):
-                    priority = line.replace("Priority:", "").strip()
-            summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
-        st.session_state["summary_data"] = summaries
+    summaries = []
+    for text in state["optimized_emails"]:
+        summary, priority = "", "Unknown"
+        for line in text.splitlines():
+            if line.lower().startswith("summary:"):
+                summary = line.replace("Summary:", "").strip()
+            elif line.lower().startswith("priority:"):
+                priority = line.replace("Priority:", "").strip()
+        summaries.append({"No.": len(summaries) + 1, "Summary": summary, "Priority": priority})
+    st.session_state["summary_data"] = summaries
 
-        # Show summaries
-        st.subheader("🧠 Summarized Results")
-        summary_df = pd.DataFrame(summaries)
-        st.table(summary_df)
+    st.subheader("🧠 Summarized Results")
+    summary_df = pd.DataFrame(summaries)
+    gb2 = GridOptionsBuilder.from_dataframe(summary_df)
+    gb2.configure_default_column(wrapText=True, autoHeight=True)
+    AgGrid(summary_df, gridOptions=gb2.build(), theme="balham", height=250)
 
-        if st.session_state.get("latest_backup"):
-            st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
+    if st.session_state.get("latest_backup"):
+        st.success(f"💾 Saved to: {st.session_state['latest_backup']}")
 
-# Send Summaries
 if st.session_state.get("summary_data"):
     st.markdown("---")
     st.subheader("📤 Send Summarized Report")
@@ -295,4 +300,5 @@ if st.session_state.get("summary_data"):
         except Exception as e:
             st.error(f"❌ Failed to send: {e}")
 
-st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit")
+st.caption("✨ Developed by Faraz Uddin Zafar | Powered by Gemini + Gmail API + LangGraph + Streamlit + AgGrid")
+
