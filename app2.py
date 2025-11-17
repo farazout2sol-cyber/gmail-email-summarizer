@@ -95,7 +95,6 @@ def gmail_login():
     Uses Streamlit secrets [em] if available, or falls back to local Em.json.
     Caches the token in st.session_state for reuse.
     """
-    ]
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
@@ -135,6 +134,7 @@ def gmail_login():
     email = user_info.get("email")
 
     return email, creds
+
 
 # ===============================
 # 🔒 Login Page
